@@ -81,38 +81,55 @@ def load_car_data(file_path: Path = DATA_FILE) -> List[Car]:
     with open(file_path, mode="r", encoding="utf-8") as file:
         reader = csv.DictReader(file)
         for row in reader:
-            # Clean and convert data
-            row["seating_capacity"] = int(float(row["seating_capacity"]))
-            row["ex_showroom_price"] = clean_price(row["ex_showroom_price"])
-            row["on_road_price"] = clean_price(row["on_road_price"])
-            row["mileage"] = clean_mileage(row["mileage"])
-            row["engine"] = clean_engine(row["engine"])
-            row["max_power"] = clean_power(row["max_power"])
-            row["max_torque"] = clean_torque(row["max_torque"])
+            # Map CSV columns to Car model fields with safe fallbacks
+            seating = row.get("seating_capacity") or row.get("seating") or "0"
+            try:
+                seating = int(float(seating))
+            except Exception:
+                seating = 0
 
-            # Handle missing or invalid safety ratings
-            for key in ["NHTSA_Safety_Rating", "Global_NCAP_Safety_Rating"]:
-                if key in row and row[key]:
-                    try:
-                        row[key] = int(float(row[key]))
-                    except (ValueError, TypeError):
-                        row[key] = None
-                else:
-                    row[key] = None
+            ex_price_raw = row.get("ex_showroom_price") or row.get("ex_showroom_price_avg") or row.get("starting_price") or ""
+            on_road_raw = row.get("on_road_price") or row.get("on_road_price_avg") or row.get("ending_price") or ""
 
-            cars.append(Car(**row))
+            mileage_raw = row.get("mileage") or row.get("mileage_kmpl") or row.get("city_mileage_kmpl") or ""
+            engine_raw = row.get("engine") or row.get("engine_displacement_cc") or ""
+            max_power_raw = row.get("max_power") or row.get("max_power_bhp") or row.get("max_power_bhp") or ""
+            max_torque_raw = row.get("max_torque") or row.get("max_torque_nm") or ""
+
+            safe_row = {
+                "body_type": row.get("body_type", ""),
+                "seating_capacity": seating,
+                "fuel_type": row.get("fuel_type", ""),
+                "transmission_type": row.get("transmission_type", ""),
+                "drivetrain": row.get("drivetrain", ""),
+                "ex_showroom_price": clean_price(ex_price_raw) if ex_price_raw else "",
+                "on_road_price": clean_price(on_road_raw) if on_road_raw else "",
+                "brand": row.get("brand", ""),
+                "model": row.get("model", ""),
+                "variant": row.get("variant", ""),
+                "features": row.get("features", ""),
+                "mileage": clean_mileage(mileage_raw) if mileage_raw else "",
+                "engine": (f"{engine_raw} cc" if engine_raw and engine_raw.isdigit() else engine_raw),
+                "max_power": clean_power(max_power_raw) if max_power_raw else "",
+                "max_torque": clean_torque(max_torque_raw) if max_torque_raw else "",
+                "NHTSA_Safety_Rating": None,
+                "Global_NCAP_Safety_Rating": None,
+                "car_name": row.get("car_name", ""),
+            }
+
+            cars.append(Car(**safe_row))
     return cars
 
 
 def clean_price(price_str: str) -> str:
     # Remove non-numeric characters and "Rs."
-    cleaned_price = re.sub(r"[^\\d.]", "", price_str).replace("Rs.", "").strip()
+    cleaned_price = re.sub(r"[^\d.]", "", price_str).replace("Rs.", "").strip()
     return cleaned_price
 
 
 def clean_mileage(mileage_str: str) -> str:
     # Extract numeric part and "kmpl"
-    match = re.search(r"(\d+\\.?\\d*)\\s*kmpl", mileage_str)
+    match = re.search(r"(\d+\.?\d*)\s*kmpl", mileage_str, flags=re.IGNORECASE)
     if match:
         return match.group(0)
     return mileage_str  # Return original if no match
@@ -120,7 +137,7 @@ def clean_mileage(mileage_str: str) -> str:
 
 def clean_engine(engine_str: str) -> str:
     # Extract numeric part and "cc"
-    match = re.search(r"(\\d+)\\s*cc", engine_str)
+    match = re.search(r"(\d+)\s*cc", engine_str, flags=re.IGNORECASE)
     if match:
         return match.group(0)
     return engine_str  # Return original if no match
@@ -128,7 +145,7 @@ def clean_engine(engine_str: str) -> str:
 
 def clean_power(power_str: str) -> str:
     # Extract numeric part and "bhp"
-    match = re.search(r"(\d+\\.?\\d*)\\s*bhp", power_str)
+    match = re.search(r"(\d+\.?\d*)\s*bhp", power_str, flags=re.IGNORECASE)
     if match:
         return match.group(0)
     return power_str  # Return original if no match
@@ -136,33 +153,33 @@ def clean_power(power_str: str) -> str:
 
 def clean_torque(torque_str: str) -> str:
     # Extract numeric part and "Nm"
-    match = re.search(r"(\d+)\\s*Nm", torque_str)
+    match = re.search(r"(\d+)\s*Nm", torque_str, flags=re.IGNORECASE)
     if match:
         return match.group(0)
     return torque_str  # Return original if no match
 
 
-@app.get(\"/cars\", response_model=List[Car])
+@app.get("/cars", response_model=List[Car])
 async def get_cars() -> List[Car]:
     return CAR_DATA
 
 
-@app.post(\"/chat/questionnaire\")
+@app.post("/chat/questionnaire")
 async def chat_questionnaire(message: Message) -> Dict[str, Any]:
     response = get_questionnaire_preferences(message.content)
-    return {\"response\": response}
+    return {"response": response}
 
 
-@app.post(\"/chat/recommendation\")
+@app.post("/chat/recommendation")
 async def chat_recommendation(message: Message) -> Dict[str, Any]:
     if not CAR_DATA:
-        raise HTTPException(status_code=500, detail=\"Car data not loaded.\")
+        raise HTTPException(status_code=500, detail="Car data not loaded.")
 
     # Combine all car details into a single string for the LLM
-    car_details_str = \"\\n\".join([str(car.dict()) for car in CAR_DATA])
-    combined_input = f\"User Message: {message.content}\\nAvailable Cars: {car_details_str}\"
+    car_details_str = "\n".join([str(car.dict()) for car in CAR_DATA])
+    combined_input = f"User Message: {message.content}\nAvailable Cars: {car_details_str}"
     summary = generate_recommendation_summary(combined_input)
-    return {\"summary\": summary}
+    return {"summary": summary}
 
 
 

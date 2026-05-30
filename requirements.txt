@@ -2,7 +2,4 @@ fastapi
 uvicorn[standard]
 python-dotenv
 langchain-groq
-langchain-core
 pydantic
-requests
-typing-extensions
