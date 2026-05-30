@@ -158,13 +158,31 @@ def get_questionnaire_preferences(user_message: str) -> Dict[str, Any]:
     return {"preferences": {}, "next_question": output.strip()}
 
 
+def _normalize_car_record(car: Any) -> Dict[str, Any]:
+    if isinstance(car, dict):
+        return car
+    if hasattr(car, "dict"):
+        return car.dict()
+    return vars(car)
+
+
+def _get_price_text(car: Dict[str, Any]) -> str:
+    price = car.get("ex_showroom_price") or car.get("ex_showroom_price_avg") or car.get("starting_price") or "N/A"
+    try:
+        return str(int(float(price)))
+    except Exception:
+        return price or "N/A"
+
+
 def generate_recommendation_summary(cars: List[Dict[str, Any]], user_message: str) -> str:
     if not cars:
         return "I could not find a match for your preferences. Please try again with a few more details."
 
+    normalized_cars = [_normalize_car_record(car) for car in cars]
+
     car_lines = [
-        f"- {car['car_name']} ({car['brand']} {car['variant']}): {car.get('body_type', 'N/A')}, {car.get('fuel_type', 'N/A')} priced around {int(car['ex_showroom_price_avg']) if car['ex_showroom_price_avg'] else 'N/A'}"
-        for car in cars
+        f"- {car.get('car_name', 'Unknown car')} ({car.get('brand', 'Unknown brand')} {car.get('variant', '')}): {car.get('body_type', 'N/A')}, {car.get('fuel_type', 'N/A')} priced around { _get_price_text(car) }"
+        for car in normalized_cars
     ]
 
     candidate_text = "\n".join(car_lines)
@@ -176,8 +194,8 @@ def generate_recommendation_summary(cars: List[Dict[str, Any]], user_message: st
 
     if recommendation_model is None:
         fallback = [
-            f"{car['car_name']} ({car['brand']} {car['variant']}) - {car.get('body_type', 'Unknown body type')}, {car.get('fuel_type', 'Unknown fuel')} priced around {int(car['ex_showroom_price_avg']) if car['ex_showroom_price_avg'] else 'N/A'}."
-            for car in cars
+            f"{car.get('car_name', 'Unknown car')} ({car.get('brand', 'Unknown brand')} {car.get('variant', '')}) - {car.get('body_type', 'Unknown body type')}, {car.get('fuel_type', 'Unknown fuel')} priced around {_get_price_text(car)}."
+            for car in normalized_cars
         ]
         return "LLM recommendation agent is not configured. Here are the top matches:\n" + "\n".join(fallback)
 
@@ -185,8 +203,8 @@ def generate_recommendation_summary(cars: List[Dict[str, Any]], user_message: st
     output = _invoke_chat_model(recommendation_model, messages)
     if output.startswith("[LLM"):
         fallback = [
-            f"{car['car_name']} ({car['brand']} {car['variant']}) - {car.get('body_type', 'Unknown body type')}, {car.get('fuel_type', 'Unknown fuel')} priced around {int(car['ex_showroom_price_avg']) if car['ex_showroom_price_avg'] else 'N/A'}."
-            for car in cars
+            f"{car.get('car_name', 'Unknown car')} ({car.get('brand', 'Unknown brand')} {car.get('variant', '')}) - {car.get('body_type', 'Unknown body type')}, {car.get('fuel_type', 'Unknown fuel')} priced around {_get_price_text(car)}."
+            for car in normalized_cars
         ]
         return "LLM recommendation agent is unavailable due to quota or API error. Here are the top matches:\n" + "\n".join(fallback)
 
