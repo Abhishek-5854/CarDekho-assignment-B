@@ -159,26 +159,17 @@ def clean_torque(torque_str: str) -> str:
     return torque_str  # Return original if no match
 
 
-@app.get("/cars", response_model=List[Car])
-async def get_cars() -> List[Car]:
-    return CAR_DATA
+@app.get("/health")
+async def health() -> Dict[str, Any]:
+    return {"status": "ok"}
 
 
-@app.post("/chat/questionnaire")
-async def chat_questionnaire(message: Message) -> Dict[str, Any]:
-    response = get_questionnaire_preferences(message.content)
-    return {"response": response}
-
-
-@app.post("/chat/recommendation")
-async def chat_recommendation(message: Message) -> Dict[str, Any]:
+@app.post("/recommend")
+async def recommend(message: Message) -> Dict[str, Any]:
     if not CAR_DATA:
         raise HTTPException(status_code=500, detail="Car data not loaded.")
 
-    # Combine all car details into a single string for the LLM
-    car_details_str = "\n".join([str(car.dict()) for car in CAR_DATA])
-    combined_input = f"User Message: {message.content}\nAvailable Cars: {car_details_str}"
-    summary = generate_recommendation_summary(combined_input)
+    summary = generate_recommendation_summary(CAR_DATA, message.content)
     return {"summary": summary}
 
 
